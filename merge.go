@@ -9,14 +9,17 @@
 package mergo
 
 import (
+	"fmt"
 	"reflect"
 )
 
 // Traverses recursively both values, assigning src's fields values to dst.
 // The map argument tracks comparisons that have already been seen, which allows
 // short circuiting on recursive types.
-func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, overwrite bool) (err error) {
+func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, overwrite bool, listKey string) (err error) {
+	fmt.Printf("deepMerge dst %+v\nsrc %+v\n", src, dst)
 	if !src.IsValid() {
+		fmt.Printf("Not Valid\n")
 		return
 	}
 	if dst.CanAddr() {
@@ -34,12 +37,31 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 	}
 	switch dst.Kind() {
 	case reflect.Struct:
+		fmt.Printf("Struct\n")
 		for i, n := 0, dst.NumField(); i < n; i++ {
-			if err = deepMerge(dst.Field(i), src.Field(i), visited, depth+1, overwrite); err != nil {
+			if err = deepMerge(dst.Field(i), src.Field(i), visited, depth+1, overwrite, listKey); err != nil {
 				return
 			}
 		}
+	case reflect.Slice:
+		fmt.Printf("Slice\n")
+		for i := 0; i < src.Len(); i++ {
+			for j := 0; j < dst.Len(); j++ {
+				if i == j {
+					fmt.Printf("DATA.....\n")
+				}
+				src := src.Index(i)
+				dst := dst.Index(j)
+				if src.FieldByName(listKey) == dst.FieldByName(listKey) {
+					fmt.Printf("MATCHING KEY\n")
+					if err = deepMerge(dst, src, visited, depth+1, overwrite, listKey); err != nil {
+						return
+					}
+				}
+			}
+		}
 	case reflect.Map:
+		fmt.Printf("Map\n")
 		for _, key := range src.MapKeys() {
 			srcElement := src.MapIndex(key)
 			if !srcElement.IsValid() {
@@ -62,7 +84,7 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 				case reflect.Ptr:
 					fallthrough
 				case reflect.Map:
-					if err = deepMerge(dstElement, srcElement, visited, depth+1, overwrite); err != nil {
+					if err = deepMerge(dstElement, srcElement, visited, depth+1, overwrite, listKey); err != nil {
 						return
 					}
 				}
@@ -75,18 +97,21 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 			}
 		}
 	case reflect.Ptr:
+		fmt.Printf("Ptr\n")
 		fallthrough
 	case reflect.Interface:
+		fmt.Printf("Interface\n")
 		if src.IsNil() {
 			break
 		} else if dst.IsNil() || overwrite {
 			if dst.CanSet() && (overwrite || isEmptyValue(dst)) {
 				dst.Set(src)
 			}
-		} else if err = deepMerge(dst.Elem(), src.Elem(), visited, depth+1, overwrite); err != nil {
+		} else if err = deepMerge(dst.Elem(), src.Elem(), visited, depth+1, overwrite, listKey); err != nil {
 			return
 		}
 	default:
+		fmt.Printf("default\n")
 		if dst.CanSet() && !isEmptyValue(src) && (overwrite || isEmptyValue(dst)) {
 			dst.Set(src)
 		}
@@ -98,17 +123,17 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 // src attributes if they themselves are not empty. dst and src must be valid same-type structs
 // and dst must be a pointer to struct.
 // It won't merge unexported (private) fields and will do recursively any exported field.
-func Merge(dst, src interface{}) error {
-	return merge(dst, src, false)
+func Merge(dst, src interface{}, key string) error {
+	return merge(dst, src, false, key)
 }
 
 // MergeWithOverwrite will do the same as Merge except that non-empty dst attributes will be overriden by
 // non-empty src attribute values.
-func MergeWithOverwrite(dst, src interface{}) error {
-	return merge(dst, src, true)
+func MergeWithOverwrite(dst, src interface{}, key string) error {
+	return merge(dst, src, true, key)
 }
 
-func merge(dst, src interface{}, overwrite bool) error {
+func merge(dst, src interface{}, overwrite bool, key string) error {
 	var (
 		vDst, vSrc reflect.Value
 		err        error
@@ -119,5 +144,5 @@ func merge(dst, src interface{}, overwrite bool) error {
 	if vDst.Type() != vSrc.Type() {
 		return ErrDifferentArgumentsTypes
 	}
-	return deepMerge(vDst, vSrc, make(map[uintptr]*visit), 0, overwrite)
+	return deepMerge(vDst, vSrc, make(map[uintptr]*visit), 0, overwrite, key)
 }
