@@ -9,7 +9,6 @@
 package mergo
 
 import (
-	"fmt"
 	"reflect"
 )
 
@@ -17,9 +16,7 @@ import (
 // The map argument tracks comparisons that have already been seen, which allows
 // short circuiting on recursive types.
 func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, overwrite bool, listKey string) (err error) {
-	fmt.Printf("deepMerge dst %+v\nsrc %+v\n", src, dst)
 	if !src.IsValid() {
-		fmt.Printf("Not Valid\n")
 		return
 	}
 	if dst.CanAddr() {
@@ -37,31 +34,45 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 	}
 	switch dst.Kind() {
 	case reflect.Struct:
-		fmt.Printf("Struct\n")
 		for i, n := 0, dst.NumField(); i < n; i++ {
 			if err = deepMerge(dst.Field(i), src.Field(i), visited, depth+1, overwrite, listKey); err != nil {
 				return
 			}
 		}
 	case reflect.Slice:
-		fmt.Printf("Slice\n")
-		for i := 0; i < src.Len(); i++ {
-			for j := 0; j < dst.Len(); j++ {
-				if i == j {
-					fmt.Printf("DATA.....\n")
-				}
-				src := src.Index(i)
-				dst := dst.Index(j)
-				if src.FieldByName(listKey) == dst.FieldByName(listKey) {
-					fmt.Printf("MATCHING KEY\n")
-					if err = deepMerge(dst, src, visited, depth+1, overwrite, listKey); err != nil {
-						return
+		if len(listKey) > 0 && src.Kind() == reflect.Slice {
+			if dst.CanSet() && !isEmptyValue(src) && (overwrite || isEmptyValue(dst)) {
+				dst.Set(src)
+			}
+		} else {
+			for i := 0; i < src.Len(); i++ {
+				for j := 0; j < dst.Len(); j++ {
+					listSrc := src.Index(i)
+					listDst := dst.Index(j)
+					if listSrc.Type() != listDst.Type() {
+						continue
+					}
+					shouldMerge := false
+
+					switch listDst.Kind() {
+					case reflect.Struct:
+						shouldMerge = listSrc.FieldByName(listKey) == listDst.FieldByName(listKey)
+					case reflect.Map:
+						val := reflect.ValueOf(listKey)
+						shouldMerge = listSrc.MapIndex(val) == listDst.MapIndex(val)
+					default:
+						continue
+					}
+
+					if shouldMerge {
+						if err = deepMerge(listDst, listSrc, visited, depth+1, overwrite, listKey); err != nil {
+							return
+						}
 					}
 				}
 			}
 		}
 	case reflect.Map:
-		fmt.Printf("Map\n")
 		for _, key := range src.MapKeys() {
 			srcElement := src.MapIndex(key)
 			if !srcElement.IsValid() {
@@ -97,10 +108,8 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 			}
 		}
 	case reflect.Ptr:
-		fmt.Printf("Ptr\n")
 		fallthrough
 	case reflect.Interface:
-		fmt.Printf("Interface\n")
 		if src.IsNil() {
 			break
 		} else if dst.IsNil() || overwrite {
@@ -111,7 +120,6 @@ func deepMerge(dst, src reflect.Value, visited map[uintptr]*visit, depth int, ov
 			return
 		}
 	default:
-		fmt.Printf("default\n")
 		if dst.CanSet() && !isEmptyValue(src) && (overwrite || isEmptyValue(dst)) {
 			dst.Set(src)
 		}
