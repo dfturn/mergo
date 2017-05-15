@@ -89,7 +89,7 @@ func deepMap(dst, src reflect.Value, visited map[uintptr]*visit, depth int, over
 				continue
 			}
 			if srcKind == dstKind {
-				if err = deepMerge(dstElement, srcElement, visited, depth+1, overwrite, ""); err != nil {
+				if err = deepMerge(dstElement, srcElement, visited, depth+1, overwrite, listKey); err != nil {
 					return
 				}
 			} else {
